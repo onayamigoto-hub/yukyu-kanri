@@ -92,7 +92,8 @@ td.num,th.num{text-align:right}
 .shift tr.cnt td{font-size:12px;padding:4px 0;background:#fafbfa}
 .shift tr.cnt td.short{color:var(--red);font-weight:700;background:var(--red2)}
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;margin:8px 0 12px;color:var(--sub)}
-.legend span b{display:inline-block;width:26px;text-align:center;border-radius:2px;margin-right:4px;padding:1px 0}
+.legend span{white-space:nowrap}
+.legend span b{display:inline-block;min-width:26px;padding:1px 3px;text-align:center;border-radius:2px;margin-right:4px}
 /* 申請 */
 .req{border:1px solid var(--line);background:#fff;border-radius:3px;padding:14px;margin-bottom:10px}
 .req .h{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -121,6 +122,17 @@ label.f{display:block;font-size:13px;color:var(--sub);margin:12px 0 4px}
 .ledger-h{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
 .basis{background:var(--main2);color:var(--main);padding:8px 12px;border-radius:2px;font-size:14px;margin:10px 0}
 .miss{background:var(--red);color:#fff;padding:2px 10px;border-radius:2px;font-size:12px;font-weight:700}
+/* 時間単位 */
+.shift td.s-時有,.shift td.s-時特{font-size:11px;letter-spacing:-.5px}
+.s-時有{background:#fff;color:var(--main);box-shadow:inset 0 0 0 2px var(--main);font-weight:700}
+.s-時特{background:#fff;color:var(--sp);box-shadow:inset 0 0 0 2px var(--sp);font-weight:700}
+.palette{display:flex;gap:6px;flex-wrap:wrap;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:3px;padding:10px 12px;margin-bottom:10px;font-size:13px}
+.palette button{border:1px solid var(--line);background:#fff;border-radius:2px;padding:4px 10px;cursor:pointer;font-size:13px}
+.palette button.on{border-color:var(--main);box-shadow:0 0 0 2px var(--main)}
+.palette select{border:1px solid #c8cfcb;border-radius:2px;padding:3px 6px}
+.sub2{display:block;font-size:12px;color:var(--sub);font-weight:400}
+td .sub2{white-space:nowrap}
+.unitnote{background:var(--yel2);color:#5f5236;padding:8px 12px;border-radius:2px;font-size:13px;margin:10px 0}
 @media (max-width:900px){.grid2{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}}
 @media print{
   .demo,header.top,.noprint{display:none!important}
@@ -156,7 +168,7 @@ const jp=s=>{const d=parse(s);return d.getFullYear()+'年'+(d.getMonth()+1)+'月
 const jps=s=>{const d=parse(s);return (d.getMonth()+1)+'/'+d.getDate()+'（'+W[d.getDay()]+'）'};
 const jpy=s=>{const d=parse(s);return d.getFullYear()+'/'+(d.getMonth()+1)+'/'+d.getDate()};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const fmt=n=>Number.isInteger(n)?String(n):n.toFixed(1);
+const fmt=n=>{n=Math.round(n*100)/100;return Number.isInteger(n)?String(n):String(n)};
 const svc=m=>{const y=Math.floor(m/12),r=m%12;return (y?y+'年':'')+(r?r+'か月':'')};
 
 /* 年度（4月〜3月） */
@@ -164,9 +176,9 @@ const fyStart=(()=>{const d=parse(TODAY);const y=d.getMonth()>=3?d.getFullYear()
 const fyEnd=addDays(addMonths(fyStart,12),-1);
 
 /* ===== 休暇の決まり ===== */
-const SPECIAL_DAYS=11;       // 正職員の特別休暇（年度ごと・有給）
+const SPECIAL_DAYS=11;       // 正職員の特別休暇（年度ごと・有給・時間単位でも取れる）
+const HOURLY_CAP_DAYS=5;     // 時間単位の有給は1年に5日分まで（目安）
 const NEED_NURSE=3;          // 1日に必要な看護職の人数（目安）
-const LEAVE={'有':1,'前有':.5,'後有':.5};
 const NORMAL=[10,11,12,14,16,18,20];
 const PROP={4:[7,8,9,10,12,13,15],3:[5,6,6,8,9,10,11],2:[3,4,4,5,6,6,7],1:[1,2,2,2,3,3,3]};
 const isProp=st=>st.wd.length<=4&&st.hours<30;
@@ -178,25 +190,47 @@ function grantBasis(months,st){
     :`勤続${svc(months)}・${st.type==='パート'?`週${st.wd.length}日（週${st.hours}時間）→ `:''}通常の付与で ${g}日`;
 }
 
+/* 休暇の記号 → 中身（種類・時間数・年5日に数える日数） */
+function lv(sym,st){
+  if(sym==='有')return{k:'有',h:st.dh,d5:1,u:'全日'};
+  if(sym==='前有'||sym==='後有')return{k:'有',h:st.dh/2,d5:.5,u:sym==='前有'?'半日（前半）':'半日（後半）'};
+  if(sym==='特')return{k:'特',h:st.dh,d5:0,u:'全日'};
+  const m=/^時(有|特)(\d+(?:\.\d+)?)$/.exec(sym||'');
+  if(m)return{k:m[1],h:+m[2],d5:0,u:'時間単位',hourly:true};
+  return null;
+}
+const symText=s=>{const m=/^時(有|特)(\d+)/.exec(s);return m?m[1]+m[2]+'h':s};
+const symClass=s=>s.startsWith('時有')?'時有':s.startsWith('時特')?'時特':s;
+
+/* 時間数 ⇔ 日数 */
+const H=h=>fmt(h)+'時間';
+function DH(h,st){
+  if(h<0)return '−'+DH(-h,st);
+  const d=Math.floor(h/st.dh+1e-9),r=Math.round((h-d*st.dh)*100)/100;
+  return d&&r?`${d}日${fmt(r)}時間`:d?`${d}日`:`${fmt(r)}時間`;
+}
+const hFirst=(h,st)=>`${H(h)}<span class="sub2">${DH(h,st)}</span>`;   // 個人の画面：時間数が先
+const dFirst=(h,st)=>`${DH(h,st)}<span class="sub2">${H(h)}</span>`;   // 全体の画面：日数が先
+
 /* ===== 見本の職員（架空） ===== */
 const DEF=[
- {id:'s1',name:'山本 花子',role:'管理者・看護師',job:'看護',type:'正職員',wd:[1,2,3,4,5],hours:40,months:138,dl:340,taken:1,planned:2,prev:6,carry0:4,special:3,color:'#315847'},
- {id:'s2',name:'田中 美穂',role:'看護師',job:'看護',type:'正職員',wd:[1,2,3,4,5],hours:40,months:78,dl:45,taken:2,planned:0,prev:5,carry0:2,special:2,color:'#7a5b3e'},
- {id:'s3',name:'鈴木 恵',role:'看護師',job:'看護',type:'正職員',wd:[1,2,3,4,5],hours:40,months:42,dl:105,taken:2,half:2,planned:0,prev:5,carry0:1,special:4,color:'#5b6f8f'},
- {id:'s4',name:'佐々木 健一',role:'理学療法士',job:'リハ',type:'正職員',wd:[1,2,3,4,5],hours:40,months:18,dl:345,taken:0,planned:1,prev:3,carry0:0,special:1,color:'#8a4f55'},
- {id:'s5',name:'高田 由香',role:'作業療法士',job:'リハ',type:'正職員',wd:[1,2,3,4,5],hours:40,months:6,dl:350,taken:0,planned:0,prev:0,carry0:0,special:0,color:'#4f7f74'},
- {id:'s6',name:'木村 直子',role:'事務',job:'事務',type:'正職員',wd:[1,2,3,4,5],hours:40,months:54,dl:200,taken:5,planned:1,prev:6,carry0:2,special:5,color:'#6b6a3c'},
- {id:'p1',name:'井上 和子',role:'看護師',job:'看護',type:'パート',wd:[1,2,3,4],hours:28,months:42,dl:14,taken:4,planned:0,prev:5,carry0:0,color:'#94603a'},
- {id:'p2',name:'松本 さやか',role:'看護師',job:'看護',type:'パート',wd:[1,3,5],hours:18,months:78,dl:120,taken:2,planned:1,prev:5,carry0:1,color:'#5a5d86'},
- {id:'p3',name:'小川 優子',role:'看護師',job:'看護',type:'パート',wd:[2,4],hours:12,months:30,dl:200,taken:1,planned:0,prev:3,carry0:0,color:'#7d6b8c'},
- {id:'p4',name:'西村 真理',role:'理学療法士',job:'リハ',type:'パート',wd:[1,2,4],hours:20,months:30,dl:150,taken:2,planned:0,prev:4,carry0:0,color:'#3f6f8a'},
+ {id:'s1',name:'山本 花子',role:'管理者・看護師',job:'看護',type:'正職員',wd:[1,2,3,4,5],hours:40,dh:8,months:138,dl:340,taken:1,planned:2,hr:['時有2','時有1'],prev:6,carry0:4,special:3,spHr:['時特2'],color:'#315847'},
+ {id:'s2',name:'田中 美穂',role:'看護師',job:'看護',type:'正職員',wd:[1,2,3,4,5],hours:40,dh:8,months:78,dl:45,taken:2,planned:0,hr:['時有2','時有3'],prev:5,carry0:2,special:2,color:'#7a5b3e'},
+ {id:'s3',name:'鈴木 恵',role:'看護師',job:'看護',type:'正職員',wd:[1,2,3,4,5],hours:40,dh:8,months:42,dl:105,taken:2,half:2,planned:0,prev:5,carry0:1,special:3,spHr:['時特3','時特2'],color:'#5b6f8f'},
+ {id:'s4',name:'佐々木 健一',role:'理学療法士',job:'リハ',type:'正職員',wd:[1,2,3,4,5],hours:40,dh:8,months:18,dl:345,taken:0,planned:1,prev:3,carry0:0,special:1,spHr:['時特1'],color:'#8a4f55'},
+ {id:'s5',name:'高田 由香',role:'作業療法士',job:'リハ',type:'正職員',wd:[1,2,3,4,5],hours:40,dh:8,months:6,dl:350,taken:0,planned:0,prev:0,carry0:0,special:0,color:'#4f7f74'},
+ {id:'s6',name:'木村 直子',role:'事務',job:'事務',type:'正職員',wd:[1,2,3,4,5],hours:40,dh:8,months:54,dl:200,taken:5,planned:1,hr:['時有3'],prev:6,carry0:2,special:5,spHr:['時特2'],color:'#6b6a3c'},
+ {id:'p1',name:'井上 和子',role:'看護師',job:'看護',type:'パート',wd:[1,2,3,4],hours:28,dh:7,months:42,dl:14,taken:4,planned:0,hr:['時有2'],prev:5,carry0:0,color:'#94603a'},
+ {id:'p2',name:'松本 さやか',role:'看護師',job:'看護',type:'パート',wd:[1,3,5],hours:18,dh:6,months:78,dl:120,taken:2,planned:1,hr:['時有1'],prev:5,carry0:1,color:'#5a5d86'},
+ {id:'p3',name:'小川 優子',role:'看護師',job:'看護',type:'パート',wd:[2,4],hours:12,dh:6,months:30,dl:200,taken:1,planned:0,prev:3,carry0:0,color:'#7d6b8c'},
+ {id:'p4',name:'西村 真理',role:'理学療法士',job:'リハ',type:'パート',wd:[1,2,4],hours:21,dh:7,months:30,dl:150,taken:2,planned:0,prev:4,carry0:0,color:'#3f6f8a'},
 ];
 
 /* ===== 保存（このブラウザの中だけ） ===== */
-const KEY='yukyu-kanri-v1';
+const KEY='yukyu-kanri-v2';
 let S;
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
-function load(){try{const t=localStorage.getItem(KEY);if(t){const o=JSON.parse(t);if(o&&o.v===1)return o}}catch(e){}return null}
+function load(){try{const t=localStorage.getItem(KEY);if(t){const o=JSON.parse(t);if(o&&o.v===2)return o}}catch(e){}return null}
 
 const isWork=(st,d)=>st.wd.includes(dow(d));
 const cell=(st,d)=>(S.ov[st.id]&&S.ov[st.id][d])||(isWork(st,d)?'日':'公');
@@ -208,18 +242,19 @@ function seed(){
     const nextBase=addDays(TODAY,d.dl+1);          // 期限＝今日からdl日後
     const curBase=addMonths(nextBase,-12);
     const hire=addMonths(curBase,-d.months);
-    return {id:d.id,name:d.name,role:d.role,job:d.job,type:d.type,wd:d.wd,hours:d.hours,hire,carry0:d.carry0,color:d.color};
+    return {id:d.id,name:d.name,role:d.role,job:d.job,type:d.type,wd:d.wd,hours:d.hours,dh:d.dh,hire,carry0:d.carry0,color:d.color};
   });
-  S={v:1,seededOn:TODAY,staff,ov:{},req:[],viewer:'admin'};
+  S={v:2,seededOn:TODAY,staff,ov:{},req:[],viewer:'admin'};
   const free=(st,from,to)=>{const out=[];for(let d=from;d<=to;d=addDays(d,1)){if(isWork(st,d)&&cell(st,d)==='日')out.push(d)}return out};
   const spread=(st,from,to,syms)=>{const days=free(st,from,to);const n=Math.min(syms.length,days.length);for(let i=0;i<n;i++){setCell(st,days[Math.floor((i+.5)*days.length/n)],syms[i])}};
   DEF.forEach((d,i)=>{
     const st=staff[i];const ps=periodsOf(st);const cur=ps[ps.length-1],prev=ps[ps.length-2];
-    const syms=[...Array(d.taken).fill('有'),...(d.half?['前有','後有'].slice(0,d.half):[])];
+    const syms=[...Array(d.taken).fill('有'),...(d.half?['前有','後有'].slice(0,d.half):[]),...(d.hr||[])];
     if(syms.length)spread(st,cur.start,addDays(TODAY,-1),syms);
     if(prev&&d.prev)spread(st,prev.start,prev.end,Array(d.prev).fill('有'));
     if(d.planned)spread(st,addDays(TODAY,3),[cur.end,addDays(TODAY,55)].sort()[0],Array(d.planned).fill('有'));
-    if(d.special)spread(st,fyStart,addDays(TODAY,-1),Array(d.special).fill('特'));
+    const sp=[...Array(d.special||0).fill('特'),...(d.spHr||[])];
+    if(sp.length)spread(st,fyStart,addDays(TODAY,-1),sp);
   });
   // 見本の申請（申請待ち）
   const s3=staffOf('s3');const w=free(s3,addDays(TODAY,6),addDays(TODAY,30));
@@ -228,11 +263,13 @@ function seed(){
   const p2=staffOf('p2');const w2=free(p2,addDays(TODAY,9),addDays(TODAY,40));
   S.req.push({id:'r2',sid:'p2',kind:'有',dates:[w2[0]],reason:'通院のため',at:TODAY,state:'待ち'});
   const s2=staffOf('s2');const w3=free(s2,addDays(TODAY,4),addDays(TODAY,30));
-  S.req.push({id:'r3',sid:'s2',kind:'前有',dates:[w3[2]],reason:'',at:addDays(TODAY,-2),state:'待ち'});
+  S.req.push({id:'r3',sid:'s2',kind:'時有',h:2,dates:[w3[2]],reason:'子どもの迎えのため、夕方2時間早く上がりたい',at:addDays(TODAY,-2),state:'待ち'});
+  const s1=staffOf('s1');const w4=free(s1,addDays(TODAY,5),addDays(TODAY,30));
+  S.req.push({id:'r4',sid:'s1',kind:'時特',h:3,dates:[w4[1]],reason:'市の会議に出るため（午後3時間）',at:addDays(TODAY,-1),state:'待ち'});
   save();
 }
 
-/* ===== 計算（基準日・付与・年5日・繰越） ===== */
+/* ===== 計算（基準日・付与・年5日・繰越）すべて時間数で持つ ===== */
 function periodsOf(st){
   const ps=[];
   for(let k=0;k<60;k++){
@@ -241,39 +278,47 @@ function periodsOf(st){
   }
   return ps;
 }
-function usage(st){const o=S.ov[st.id]||{};return Object.keys(o).filter(d=>LEAVE[o[d]]).sort().map(d=>({date:d,sym:o[d],val:LEAVE[o[d]]}))}
-const sum=a=>a.reduce((x,u)=>x+u.val,0);
+function usage(st,kind){const o=S.ov[st.id]||{};return Object.keys(o).sort().map(d=>{const v=lv(o[d],st);return v&&v.k===kind?{date:d,sym:o[d],...v}:null}).filter(Boolean)}
+const sumH=a=>a.reduce((x,u)=>x+u.h,0);
+const sum5=a=>a.reduce((x,u)=>x+u.d5,0);
 function ledger(st){
   const ps=periodsOf(st);
   if(!ps.length)return{periods:[],cur:null,first:addMonths(st.hire,6)};
-  const us=usage(st);const out=[];let carryIn=st.carry0;
+  const us=usage(st,'有');const out=[];let carryIn=st.carry0*st.dh;
   for(let i=Math.max(0,ps.length-2);i<ps.length;i++){
     const p=ps[i];const days=us.filter(u=>u.date>=p.start&&u.date<=p.end);
     const tk=days.filter(u=>u.date<=TODAY),pl=days.filter(u=>u.date>TODAY);
-    const used=sum(tk),planned=sum(pl);
+    const grantH=p.grant*st.dh;
+    const usedH=sumH(tk),plannedH=sumH(pl);
+    const used=sum5(tk),planned=sum5(pl);                     // 年5日に数える日数（全日・半日だけ）
+    const hourlyH=sumH(days.filter(u=>u.hourly)),hourCap=HOURLY_CAP_DAYS*st.dh;
     const target=p.grant>=10;
-    const lapse=Math.max(0,carryIn-used-planned);           // 繰越分は先に使う → 使い残しは期間の終わりに時効
-    const carryOut=Math.max(0,p.grant-Math.max(0,used+planned-carryIn));
+    const lapse=Math.max(0,carryIn-usedH-plannedH);            // 繰越分は先に使う → 使い残しは期間の終わりに時効
+    const carryOut=Math.max(0,grantH-Math.max(0,usedH+plannedH-carryIn));
     const left=diff(TODAY,p.end);
     let state;
     if(!target)state='out';else if(used>=5)state='ok';else if(p.end<TODAY)state='miss';else if(left<=90)state='red';else state='yel';
-    out.push({...p,carryIn,used,planned,remain:carryIn+p.grant-used,remainAfter:carryIn+p.grant-used-planned,lapse,days,target,state,left,need:Math.max(0,5-used),cur:i===ps.length-1});
+    out.push({...p,grantH,carryIn,usedH,plannedH,used,planned,hourlyH,hourCap,remain:carryIn+grantH-usedH,remainAfter:carryIn+grantH-usedH-plannedH,lapse,days,target,state,left,need:Math.max(0,5-used),cur:i===ps.length-1});
     carryIn=carryOut;
   }
   return{periods:out,cur:out[out.length-1]};
 }
 function specialOf(st){
   if(st.type!=='正職員')return null;
-  const o=S.ov[st.id]||{};const ds=Object.keys(o).filter(d=>o[d]==='特'&&d>=fyStart&&d<=fyEnd).sort();
-  return{days:ds,used:ds.filter(d=>d<=TODAY).length,planned:ds.filter(d=>d>TODAY).length,remain:SPECIAL_DAYS-ds.length};
+  const items=usage(st,'特').filter(u=>u.date>=fyStart&&u.date<=fyEnd);
+  const total=SPECIAL_DAYS*st.dh;
+  const usedH=sumH(items.filter(u=>u.date<=TODAY)),plannedH=sumH(items.filter(u=>u.date>TODAY));
+  return{items,total,usedH,plannedH,remain:total-usedH-plannedH};
 }
-function nurseCount(d){let n=0;S.staff.forEach(st=>{if(st.job!=='看護')return;const c=cell(st,d);if(c==='日')n+=1;else if(c==='前有'||c==='後有')n+=.5});return n}
+function nurseCount(d){let n=0;S.staff.forEach(st=>{if(st.job!=='看護')return;const c=cell(st,d);if(c==='日'||c.startsWith('時'))n+=1;else if(c==='前有'||c==='後有')n+=.5});return n}
 
 const STATE={ok:['届いた','ok'],yel:['足りない','yel'],red:['足りない・期限が近い','red'],miss:['期限を過ぎて届かなかった','red'],out:['対象外','gray']};
 const av=st=>`<span class="av" style="background:${st.color}">${esc(st.name[0])}</span>`;
-const workText=st=>st.type==='正職員'?'正職員':`パート 週${st.wd.length}日・${st.hours}時間`;
+const workText=st=>st.type==='正職員'?`正職員・1日${st.dh}時間`:`パート 週${st.wd.length}日・1日${st.dh}時間`;
 const who=st=>`<div class="who">${av(st)}<div><div class="n">${esc(st.name)}</div><div class="t">${esc(st.role)}／${workText(st)}</div></div></div>`;
-const KIND={'有':'有給（全日）','前有':'有給（前半の半日）','後有':'有給（後半の半日）','特':'特別休暇'};
+const KIND={'有':'有給（全日）','前有':'有給（前半の半日）','後有':'有給（後半の半日）','時有':'有給（時間単位）','特':'特別休暇（全日）','時特':'特別休暇（時間単位）'};
+const reqHours=(q,st)=>q.kind.startsWith('時')?q.h*q.dates.length:q.dates.length*(q.kind==='前有'||q.kind==='後有'?st.dh/2:st.dh);
+const reqSym=q=>q.kind.startsWith('時')?q.kind+q.h:q.kind;
 
 /* ===== 画面：管理者 ===== */
 function header(){
@@ -302,34 +347,36 @@ function pageStatus(){
   </div>
   <div class="grid2"><div>
   <div class="wrap"><table>
-   <tr><th>職員</th><th>基準日</th><th>期限</th><th class="num">付与</th><th class="num">取得</th><th class="num">予定</th><th>5日まで</th><th class="num">あと</th><th class="num">期限まで</th><th>状態</th></tr>
+   <tr><th>職員</th><th>基準日</th><th>期限</th><th class="num">付与</th><th class="num">取得※</th><th class="num">予定※</th><th>5日まで</th><th class="num">あと</th><th class="num">期限まで</th><th class="num">有給の残り</th><th>状態</th></tr>
    ${tg.map(({st,L})=>{const c=L.cur;const [lab,cls]=STATE[c.state];
      const note=c.state!=='ok'&&c.used+c.planned>=5?'<div class="note">予定どおりなら届く</div>':'';
      return `<tr class="click" onclick="location.hash='#/staff/${st.id}'">
       <td>${who(st)}</td><td>${jpy(c.start)}</td><td>${jpy(c.end)}</td>
-      <td class="num">${c.grant}日</td><td class="num">${fmt(c.used)}日</td><td class="num">${c.planned?fmt(c.planned)+'日':'―'}</td>
+      <td class="num">${dFirst(c.grantH,st)}</td><td class="num">${fmt(c.used)}日</td><td class="num">${c.planned?fmt(c.planned)+'日':'―'}</td>
       <td><span class="bar ${c.state==='red'?'red':''}"><i class="p" style="width:${Math.min(100,(c.used+c.planned)/5*100)}%"></i><i style="width:${Math.min(100,c.used/5*100)}%"></i></span></td>
       <td class="num"><span class="big ${c.state==='red'?'red':''}">${c.need?fmt(c.need):'0'}</span>日</td>
       <td class="num">${c.left}日</td>
+      <td class="num">${dFirst(c.remain,st)}</td>
       <td><span class="tag ${cls}">${lab}</span>${note}</td></tr>`}).join('')}
   </table></div>
+  <p class="note">※ 取得・予定は「年5日」に数える分（全日・半日）です。時間単位で取った有給は年5日には数えません。日数の下の小さな数字は時間数です（1日＝その人の1日の勤務時間）。</p>
   <h2>年5日の対象外（付与が10日未満）</h2>
   <div class="wrap"><table>
-   <tr><th>職員</th><th>今の付与</th><th>理由</th><th class="num">取得</th><th class="num">残り</th></tr>
+   <tr><th>職員</th><th class="num">今の付与</th><th>理由</th><th class="num">取得（時間単位も含む）</th><th class="num">有給の残り</th></tr>
    ${out.map(({st,L})=>{const c=L.cur;return `<tr class="click" onclick="location.hash='#/staff/${st.id}'"><td>${who(st)}</td>
-     <td>${c?c.grant+'日':'まだ付与なし'}</td><td>${c?`付与${c.grant}日・週${st.wd.length}日（比例付与）`:`最初の付与は ${jp(L.first)}`}</td>
-     <td class="num">${c?fmt(c.used)+'日':'―'}</td><td class="num">${c?fmt(c.remain)+'日':'―'}</td></tr>`}).join('')}
+     <td class="num">${c?dFirst(c.grantH,st):'まだ付与なし'}</td><td>${c?`付与${c.grant}日・週${st.wd.length}日（比例付与）`:`最初の付与は ${jp(L.first)}`}</td>
+     <td class="num">${c?dFirst(c.usedH,st):'―'}</td><td class="num">${c?dFirst(c.remain,st):'―'}</td></tr>`}).join('')}
   </table></div>
   </div>
   <div class="side">
    <div class="card"><h3>申請待ち ${pend.length}件</h3>
-    ${pend.length?pend.map(q=>{const st=staffOf(q.sid);return `<div style="margin-bottom:8px;font-size:14px">${esc(st.name)}さん：${KIND[q.kind]}<br><span class="note">${q.dates.map(jps).join('・')}</span></div>`}).join('')+`<a class="btn sm" href="#/requests">申請を見る</a>`:'<div class="note">ありません</div>'}
+    ${pend.length?pend.map(q=>{const st=staffOf(q.sid);return `<div style="margin-bottom:8px;font-size:14px">${esc(st.name)}さん：${KIND[q.kind]}<br><span class="note">${q.dates.map(jps).join('・')}　${H(reqHours(q,st))}</span></div>`}).join('')+`<a class="btn sm" href="#/requests">申請を見る</a>`:'<div class="note">ありません</div>'}
    </div>
    <div class="card"><h3>声をかける順（目安）</h3>
-    ${tg.filter(r=>r.L.cur.state!=='ok').slice(0,4).map(({st,L})=>`<div style="font-size:14px;margin-bottom:6px"><b>${esc(st.name)}さん</b>　あと${fmt(L.cur.need)}日・期限まで${L.cur.left}日${st.type==='パート'?'<br><span class="note">パートでも付与が10日以上なので対象です</span>':''}</div>`).join('')}
+    ${tg.filter(r=>r.L.cur.state!=='ok').slice(0,4).map(({st,L})=>`<div style="font-size:14px;margin-bottom:6px"><b>${esc(st.name)}さん</b>　あと${fmt(L.cur.need)}日・期限まで${L.cur.left}日${st.type==='パート'?'<br><span class="note">パートでも付与が10日以上なので対象です</span>':''}${L.cur.hourlyH?`<br><span class="note">時間単位で ${H(L.cur.hourlyH)} 取っていますが、年5日には数えません</span>`:''}</div>`).join('')}
    </div>
    <div class="card"><h3>この画面の決まり</h3><div class="note">
-    ・半日は0.5日として数えます<br>・特別休暇は年5日に数えません<br>・シフト表で先の日に入っている「有」は「予定」として別に数えます<br>・繰越分から先に使います</div></div>
+    ・有給は全日・半日・時間単位で取れます<br>・半日は0.5日として年5日に数えます<br>・時間単位の有給と特別休暇は年5日に数えません<br>・時間単位の有給は1年に5日分までです<br>・シフト表で先の日に入っている休みは「予定」として別に数えます<br>・繰越分から先に使います</div></div>
   </div></div>
   <p class="disclaimer">日数と判定はすべて目安です。最終の判断は事業所で行ってください（必要に応じて社会保険労務士にご確認ください）。</p>`;
 }
@@ -338,45 +385,54 @@ function pageLedger(id){
   const st=staffOf(id)||S.staff[0];const L=ledger(st);const sp=specialOf(st);
   const sel=`<select class="f noprint" style="width:auto" onchange="location.hash='#/staff/'+this.value">${S.staff.map(s=>`<option value="${s.id}" ${s.id===st.id?'selected':''}>${esc(s.name)}</option>`).join('')}</select>`;
   let h=`<div class="ledger-h"><div><h1>年次有給休暇管理簿</h1><div class="row" style="margin-top:8px">${who(st)}<span class="note">入社日 ${jp(st.hire)}</span></div></div>
-   <div class="row noprint">${sel}<button class="btn sub" onclick="window.print()">印刷する</button><button class="btn" onclick="csvLedger('${st.id}')">CSVで書き出す（Excel）</button></div></div>`;
+   <div class="row noprint">${sel}<button class="btn sub" onclick="window.print()">印刷する</button><button class="btn" onclick="csvLedger('${st.id}')">CSVで書き出す（Excel）</button></div></div>
+   <div class="unitnote">この管理簿は <b>時間数</b> で数えています（1日＝${st.dh}時間）。かっこ内は日数に直したものです。</div>`;
   if(!L.cur){return h+`<div class="card" style="margin-top:16px">まだ有給は付与されていません。最初の基準日は <b>${jp(L.first)}</b> です（入社から6か月後）。</div>`}
   [...L.periods].reverse().forEach(p=>{
     const [lab,cls]=STATE[p.state];
     h+=`<h2>${p.cur?'今の期間':'前の期間'}：${jp(p.start)} 〜 ${jp(p.end)} ${p.state==='miss'?'<span class="miss">期限を過ぎて5日に届かなかった</span>':''}</h2>
-    <div class="basis">基準日 ${jp(p.start)}　付与 ${p.grant}日（${grantBasis(p.months,st)}）</div>
+    <div class="basis">基準日 ${jp(p.start)}　付与 ${p.grant}日＝${H(p.grantH)}（${grantBasis(p.months,st)}）</div>
     <div class="wrap"><table>
-     <tr><th>基準日</th><th class="num">付与</th><th class="num">繰越</th><th class="num">取得</th>${p.cur?'<th class="num">予定</th>':''}<th class="num">残り</th><th class="num">時効になる見込み</th><th>年5日</th></tr>
-     <tr><td>${jpy(p.start)}</td><td class="num">${p.grant}日</td><td class="num">${fmt(p.carryIn)}日</td><td class="num">${fmt(p.used)}日</td>${p.cur?`<td class="num">${fmt(p.planned)}日</td>`:''}
-      <td class="num"><b>${fmt(p.remain)}日</b></td><td class="num">${p.lapse?fmt(p.lapse)+'日（'+jpy(p.end)+'）':'―'}</td>
-      <td><span class="tag ${cls}">${lab}</span>${p.target&&p.state!=='ok'&&p.cur?` あと${fmt(p.need)}日・期限まで${p.left}日`:''}</td></tr>
+     <tr><th class="num">付与</th><th class="num">繰越</th><th class="num">取得</th>${p.cur?'<th class="num">予定</th>':''}<th class="num">残り</th><th class="num">時間単位の取得<span class="sub2">上限 ${H(p.hourCap)}</span></th><th class="num">時効になる見込み</th><th>年5日</th></tr>
+     <tr><td class="num">${hFirst(p.grantH,st)}</td><td class="num">${hFirst(p.carryIn,st)}</td><td class="num">${hFirst(p.usedH,st)}</td>${p.cur?`<td class="num">${hFirst(p.plannedH,st)}</td>`:''}
+      <td class="num"><b>${H(p.remain)}</b><span class="sub2">${DH(p.remain,st)}</span></td>
+      <td class="num">${H(p.hourlyH)}<span class="sub2">残り ${H(Math.max(0,p.hourCap-p.hourlyH))}</span></td>
+      <td class="num">${p.lapse?H(p.lapse)+`<span class="sub2">${DH(p.lapse,st)}・${jpy(p.end)}</span>`:'―'}</td>
+      <td><span class="tag ${cls}">${lab}</span><span class="sub2">数える分 ${fmt(p.used)}日${p.target&&p.state!=='ok'&&p.cur?`・あと${fmt(p.need)}日・期限まで${p.left}日`:''}</span></td></tr>
     </table></div>
     <h2 style="font-size:14px;margin-top:14px">取得した日（シフト表から）</h2>
-    <div class="wrap"><table><tr><th>日付</th><th>区分</th><th class="num">日数</th><th>取得／予定</th><th class="noprint"></th></tr>
-     ${p.days.length?p.days.map(u=>`<tr><td>${jp(u.date)}（${W[dow(u.date)]}）</td><td>${u.sym==='有'?'全日':u.sym==='前有'?'半日（前半）':'半日（後半）'}</td><td class="num">${fmt(u.val)}日</td><td>${u.date<=TODAY?'取得':'<span class="tag gray">予定</span>'}</td>
-      <td class="noprint">${u.date>=addMonths(TODAY,-12).slice(0,8)+'01'?`<a href="#/shift?m=${u.date.slice(0,7)}&d=${u.date}&s=${st.id}">シフト表で見る</a>`:''}</td></tr>`).join(''):'<tr><td colspan="5" class="note">まだありません</td></tr>'}
+    <div class="wrap"><table><tr><th>日付</th><th>区分</th><th class="num">時間数</th><th class="num">年5日に数える</th><th>取得／予定</th><th class="noprint"></th></tr>
+     ${p.days.length?p.days.map(u=>`<tr><td>${jp(u.date)}（${W[dow(u.date)]}）</td><td>${u.u}</td><td class="num">${H(u.h)}</td><td class="num">${u.d5?fmt(u.d5)+'日':'<span class="note">数えない</span>'}</td><td>${u.date<=TODAY?'取得':'<span class="tag gray">予定</span>'}</td>
+      <td class="noprint">${u.date>=addMonths(TODAY,-12).slice(0,8)+'01'?`<a href="#/shift?m=${u.date.slice(0,7)}&d=${u.date}&s=${st.id}">シフト表で見る</a>`:''}</td></tr>`).join(''):'<tr><td colspan="6" class="note">まだありません</td></tr>'}
     </table></div>`;
   });
   if(sp)h+=`<h2>特別休暇（${jpy(fyStart)}〜${jpy(fyEnd)}・年5日には数えません）</h2>
-   <div class="card">付与 ${SPECIAL_DAYS}日／取得 ${sp.used}日／予定 ${sp.planned}日／<b>残り ${sp.remain}日</b><div class="note" style="margin-top:4px">${sp.days.map(jps).join('・')||'取った日はありません'}</div></div>`;
+   <div class="wrap"><table><tr><th class="num">付与</th><th class="num">取得</th><th class="num">予定</th><th class="num">残り</th><th>取った日・予定の日</th></tr>
+   <tr><td class="num">${hFirst(sp.total,st)}</td><td class="num">${hFirst(sp.usedH,st)}</td><td class="num">${hFirst(sp.plannedH,st)}</td><td class="num"><b>${H(sp.remain)}</b><span class="sub2">${DH(sp.remain,st)}</span></td>
+   <td style="white-space:normal;font-size:13px">${sp.items.map(u=>`${jps(u.date)} ${u.hourly?H(u.h):'全日'}`).join('・')||'―'}</td></tr></table></div>`;
   else h+=`<p class="note" style="margin-top:20px">パートの方には特別休暇はありません（この事業所の決まり）。</p>`;
   return h+`<p class="disclaimer">日数と判定は目安です。管理簿は期間が終わってから3年間保存します。最終の判断は事業所で行ってください。</p>`;
 }
 function pageLedgerList(){
-  return `<h1>年次有給休暇管理簿</h1><p class="lead">職員を選んでください。</p><div class="wrap"><table><tr><th>職員</th><th>基準日</th><th class="num">付与</th><th class="num">残り</th><th>年5日</th></tr>
-  ${S.staff.map(st=>{const c=ledger(st).cur;return `<tr class="click" onclick="location.hash='#/staff/${st.id}'"><td>${who(st)}</td><td>${c?jpy(c.start):'―'}</td><td class="num">${c?c.grant+'日':'―'}</td><td class="num">${c?fmt(c.remain)+'日':'―'}</td><td>${c?`<span class="tag ${STATE[c.state][1]}">${STATE[c.state][0]}</span>`:''}</td></tr>`}).join('')}</table></div>`;
+  return `<h1>年次有給休暇管理簿</h1><p class="lead">職員を選んでください。一覧では日数を先に、下に時間数を出しています。</p><div class="wrap"><table><tr><th>職員</th><th>基準日</th><th class="num">付与</th><th class="num">取得</th><th class="num">残り</th><th>年5日</th></tr>
+  ${S.staff.map(st=>{const c=ledger(st).cur;return `<tr class="click" onclick="location.hash='#/staff/${st.id}'"><td>${who(st)}</td><td>${c?jpy(c.start):'―'}</td><td class="num">${c?dFirst(c.grantH,st):'―'}</td><td class="num">${c?dFirst(c.usedH,st):'―'}</td><td class="num">${c?dFirst(c.remain,st):'―'}</td><td>${c?`<span class="tag ${STATE[c.state][1]}">${STATE[c.state][0]}</span>`:''}</td></tr>`}).join('')}</table></div>`;
 }
 function csvLedger(id){
   const st=staffOf(id);const L=ledger(st);
-  const rows=[['年次有給休暇管理簿'],['氏名',st.name],['職種',st.role],['働き方',workText(st)],['入社日',st.hire],[]];
+  const rows=[['年次有給休暇管理簿'],['氏名',st.name],['職種',st.role],['働き方',workText(st)],['入社日',st.hire],['1日の時間数',st.dh],[]];
   L.periods.forEach(p=>{
-    rows.push(['期間',p.start+'〜'+p.end],['基準日',p.start],['付与日数',p.grant,grantBasis(p.months,st)],['繰越',p.carryIn],['取得',p.used],['残り',p.remain],['年5日',STATE[p.state][0]]);
-    rows.push(['取得日','区分','日数','取得/予定']);
-    p.days.forEach(u=>rows.push([u.date,u.sym==='有'?'全日':'半日',u.val,u.date<=TODAY?'取得':'予定']));rows.push([]);
+    rows.push(['期間',p.start+'〜'+p.end],['基準日',p.start],['','時間数','日数'],['付与',p.grantH,DH(p.grantH,st),grantBasis(p.months,st)],['繰越',p.carryIn,DH(p.carryIn,st)],['取得',p.usedH,DH(p.usedH,st)],['予定',p.plannedH,DH(p.plannedH,st)],['残り',p.remain,DH(p.remain,st)],['時間単位の取得',p.hourlyH,'上限 '+p.hourCap+'時間'],['年5日',STATE[p.state][0],'数える分 '+p.used+'日']);
+    rows.push(['取得日','区分','時間数','年5日に数える日数','取得/予定']);
+    p.days.forEach(u=>rows.push([u.date,u.u,u.h,u.d5,u.date<=TODAY?'取得':'予定']));rows.push([]);
   });
+  const sp=specialOf(st);
+  if(sp){rows.push(['特別休暇',fyStart+'〜'+fyEnd],['付与',sp.total,DH(sp.total,st)],['取得',sp.usedH,DH(sp.usedH,st)],['予定',sp.plannedH,DH(sp.plannedH,st)],['残り',sp.remain,DH(sp.remain,st)]);sp.items.forEach(u=>rows.push([u.date,u.u,u.h]))}
   const csv='﻿'+rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\r\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=`年次有給休暇管理簿_${st.name.replace(' ','')}_${TODAY}.csv`;a.click();
 }
 
+/* シフト表：入れる記号を選んでからマスを押す */
+let BRUSH='cycle',BRUSH_H=2;
 function pageShift(q){
   const minM=addMonths(TODAY,-12).slice(0,7),maxM=addMonths(TODAY,2).slice(0,7);
   let m=q.get('m')||TODAY.slice(0,7);if(m<minM)m=minM;if(m>maxM)m=maxM;
@@ -384,93 +440,134 @@ function pageShift(q){
   const days=[...Array(n)].map((_,i)=>addDays(first,i));
   const prev=addMonths(first,-1).slice(0,7),next=addMonths(first,1).slice(0,7);
   const [y,mm]=m.split('-').map(Number);
+  const B=[['cycle','順番に変える'],['日','日'],['有','有'],['前有','前有'],['後有','後有'],['時有','有（時間）'],['特','特'],['時特','特（時間）'],['公','公']];
   return `<h1>シフト表</h1>
-  <p class="lead">マスを押すと記号が「日 → 有 → 前有 → 後有 → 特 → 公」の順に変わります。休暇の記号は、管理簿と年5日の取得状況にその場で反映されます。</p>
+  <p class="lead">入れたい記号を選んでからマスを押してください。「順番に変える」のときは、押すたびに「日 → 有 → 前有 → 後有 → 特 → 公」と変わります。休みは、管理簿と年5日の取得状況にその場で反映されます。</p>
+  <div class="palette" id="pal">入れる記号：${B.map(([k,l])=>`<button data-b="${k}" class="${BRUSH===k?'on':''}">${l}</button>`).join('')}
+   <span>時間数</span><select id="bh">${[1,2,3,4,5,6,7].map(h=>`<option value="${h}" ${h===BRUSH_H?'selected':''}>${h}時間</option>`).join('')}</select>
+   <span id="shmsg" class="note"></span></div>
   <div class="row" style="margin-bottom:6px">
    <a class="btn sub sm" href="#/shift?m=${prev}" ${m<=minM?'style="visibility:hidden"':''}>‹ 前の月</a>
    <b style="font-size:17px">${y}年${mm}月</b>
    <a class="btn sub sm" href="#/shift?m=${next}" ${m>=maxM?'style="visibility:hidden"':''}>次の月 ›</a>
    <a class="btn sub sm" href="#/shift">今月</a>
   </div>
-  <div class="legend"><span><b class="s-日">日</b>日勤</span><span><b class="s-公">公</b>公休</span><span><b class="s-有">有</b>有給</span><span><b class="s-前有">前有</b><b class="s-後有">後有</b>有給の半日</span><span><b class="s-特">特</b>特別休暇（正職員のみ）</span></div>
+  <div class="legend"><span><b class="s-日">日</b>日勤</span><span><b class="s-公">公</b>公休</span><span><b class="s-有">有</b>有給</span><span><b class="s-前有">前有</b><b class="s-後有">後有</b>有給の半日</span><span><b class="s-時有">有2h</b>有給の時間単位（例：2時間）</span><span><b class="s-特">特</b>特別休暇</span><span><b class="s-時特">特3h</b>特別休暇の時間単位</span><span>特別休暇は正職員のみ</span></div>
   <div class="wrap"><table class="shift">
    <tr><th class="nm">職員</th>${days.map(d=>{const w=dow(d);return `<th class="${w===0?'sun':w===6?'sat':''} ${d===TODAY?'today':''}">${+d.slice(8)}<br>${W[w]}</th>`}).join('')}</tr>
-   ${S.staff.map(st=>`<tr><td class="nm"><b>${esc(st.name)}</b><br><span class="note">${esc(st.role)}${st.type==='パート'?'・パート':''}</span></td>${days.map(d=>{const c=cell(st,d);return `<td class="c s-${c}" data-s="${st.id}" data-d="${d}">${c}</td>`}).join('')}</tr>`).join('')}
+   ${S.staff.map(st=>`<tr><td class="nm"><b>${esc(st.name)}</b><br><span class="note">${esc(st.role)}${st.type==='パート'?'・パート':''}・1日${st.dh}h</span></td>${days.map(d=>{const c=cell(st,d);return `<td class="c s-${symClass(c)}" data-s="${st.id}" data-d="${d}">${symText(c)}</td>`}).join('')}</tr>`).join('')}
    <tr class="cnt"><td class="nm">看護職の人数<br><span class="note">必要 ${NEED_NURSE}名</span></td>${days.map(d=>{const w=dow(d);if(w===0||w===6)return '<td>―</td>';const c=nurseCount(d);return `<td class="${c<NEED_NURSE?'short':''}">${fmt(c)}</td>`}).join('')}</tr>
   </table></div>
-  <p class="note">土日は営業日外としています（お試し版の設定）。看護職の人数が必要人数を下回る日は赤で示します。</p>`;
+  <p class="note">土日は営業日外としています（お試し版の設定）。時間単位の休みの日は出勤として人数に数えます。看護職の人数が必要人数を下回る日は赤で示します。</p>`;
 }
-function cycleCell(sid,d){
-  const st=staffOf(sid);const order=st.type==='正職員'?['日','有','前有','後有','特','公']:['日','有','前有','後有','公'];
-  const c=cell(st,d);let nx=order[(order.indexOf(c)+1)%order.length];
-  if(nx==='特'){const sp=specialOf(st);if(sp.remain<=0&&!(d>=fyStart&&d<=fyEnd&&c==='特'))nx='公'}
-  setCell(st,d,nx);save();
+/* 記号を入れられるか確かめる（入れられないときは理由を返す） */
+function canPut(st,d,sym,old){
+  const v=lv(sym,st);if(!v)return '';
+  if(!isWork(st,d))return `${jps(d)} は${esc(st.name)}さんの勤務の日ではありません`;
+  if(v.k==='特'&&st.type!=='正職員')return 'パートの方には特別休暇はありません';
+  if(v.hourly&&v.h>=st.dh)return `${esc(st.name)}さんの1日は${st.dh}時間なので、${st.dh}時間以上は全日で入れてください`;
+  const ov=lv(old,st);
+  if(v.k==='特'){
+    if(d<fyStart||d>fyEnd)return '特別休暇は今の年度（'+jpy(fyStart)+'〜'+jpy(fyEnd)+'）の日に入れてください';
+    const sp=specialOf(st);const back=ov&&ov.k==='特'?ov.h:0;
+    if(sp.remain+back<v.h)return `特別休暇の残りは ${H(sp.remain)}（${DH(sp.remain,st)}）です`;
+  }
+  if(v.k==='有'&&v.hourly){
+    const p=ledger(st).periods.find(p=>d>=p.start&&d<=p.end);
+    if(p){const back=ov&&ov.hourly&&ov.k==='有'?ov.h:0;if(p.hourlyH-back+v.h>p.hourCap)return `時間単位の有給は1年に${HOURLY_CAP_DAYS}日分（${H(p.hourCap)}）までです。この期間はすでに ${H(p.hourlyH-back)} 取っています`}
+  }
+  return '';
+}
+function putCell(sid,d){
+  const st=staffOf(sid);const c=cell(st,d);let nx;
+  if(BRUSH==='cycle'){
+    const order=st.type==='正職員'?['日','有','前有','後有','特','公']:['日','有','前有','後有','公'];
+    nx=order[(order.indexOf(c)+1)%order.length];
+    if(!isWork(st,d))nx=c==='公'?'日':'公';
+    else if(canPut(st,d,nx,c))nx=nx==='特'?'公':nx;
+  }else nx=BRUSH.startsWith('時')?BRUSH+BRUSH_H:BRUSH;
+  const why=canPut(st,d,nx,c);
+  if(why)return why;
+  setCell(st,d,nx);save();return '';
 }
 
 function pageSpecial(){
   const full=S.staff.filter(s=>s.type==='正職員');
   return `<h1>特別休暇</h1>
-  <p class="lead">正職員には、年度（${jp(fyStart)}〜${jp(fyEnd)}）ごとに有給の特別休暇が <b>${SPECIAL_DAYS}日</b> 付与されます。パートの方にはありません。特別休暇は年5日の有給の取得には数えません。</p>
+  <p class="lead">正職員には、年度（${jp(fyStart)}〜${jp(fyEnd)}）ごとに有給の特別休暇が <b>${SPECIAL_DAYS}日</b>（1日8時間の人は ${SPECIAL_DAYS*8}時間）付与されます。<b>時間単位でも取れます。</b>パートの方にはありません。特別休暇は年5日の有給の取得には数えません。</p>
   <div class="wrap"><table><tr><th>職員</th><th class="num">付与</th><th class="num">取得</th><th class="num">予定</th><th class="num">残り</th><th></th><th>取った日・予定の日</th></tr>
-  ${full.map(st=>{const sp=specialOf(st);return `<tr><td>${who(st)}</td><td class="num">${SPECIAL_DAYS}日</td><td class="num">${sp.used}日</td><td class="num">${sp.planned}日</td><td class="num"><b>${sp.remain}日</b></td>
-   <td><span class="bar"><i style="width:${(SPECIAL_DAYS-sp.remain)/SPECIAL_DAYS*100}%;background:var(--sp)"></i></span></td><td style="white-space:normal;font-size:13px">${sp.days.map(jps).join('・')||'―'}</td></tr>`}).join('')}
+  ${full.map(st=>{const sp=specialOf(st);return `<tr><td>${who(st)}</td><td class="num">${dFirst(sp.total,st)}</td><td class="num">${dFirst(sp.usedH,st)}</td><td class="num">${sp.plannedH?dFirst(sp.plannedH,st):'―'}</td><td class="num"><b>${DH(sp.remain,st)}</b><span class="sub2">${H(sp.remain)}</span></td>
+   <td><span class="bar"><i style="width:${(sp.total-sp.remain)/sp.total*100}%;background:var(--sp)"></i></span></td><td style="white-space:normal;font-size:13px">${sp.items.map(u=>`${jps(u.date)}${u.hourly?' '+H(u.h):''}`).join('・')||'―'}</td></tr>`}).join('')}
   </table></div>
+  <p class="note">一覧は日数を先に、下に時間数を出しています。</p>
   <h2>パート</h2>
   <div class="card">${S.staff.filter(s=>s.type==='パート').map(s=>esc(s.name)).join('・')}　…特別休暇の付与はありません。</div>`;
 }
 
 function reqCheck(q){
-  const st=staffOf(q.sid);const out=[];
+  const st=staffOf(q.sid);const out=[];const sym=reqSym(q);const need=reqHours(q,st);
   q.dates.forEach(d=>{
     if(!isWork(st,d))out.push(['warn',`${jps(d)} はもともと勤務の日ではありません`]);
-    else if(LEAVE[cell(st,d)]||cell(st,d)==='特')out.push(['warn',`${jps(d)} はすでに休みが入っています`]);
-    if(st.job==='看護'){const c=nurseCount(d)-1;out.push([c<NEED_NURSE?'warn':'',`${jps(d)} この人が休むと看護職は ${fmt(c)}名（必要 ${NEED_NURSE}名）`])}
+    else if(cell(st,d)!=='日')out.push(['warn',`${jps(d)} はすでに休みが入っています`]);
+    if(st.job==='看護'&&!q.kind.startsWith('時')){const c=nurseCount(d)-(q.kind==='有'||q.kind==='特'?1:.5);out.push([c<NEED_NURSE?'warn':'',`${jps(d)} この人が休むと看護職は ${fmt(c)}名（必要 ${NEED_NURSE}名）`])}
   });
-  if(q.kind==='特'){const sp=specialOf(st);out.push([sp.remain<q.dates.length?'warn':'',`特別休暇の残り ${sp.remain}日 → 承認すると ${sp.remain-q.dates.length}日。年5日には数えません`])}
-  else{const c=ledger(st).cur;if(c){const v=LEAVE[q.kind]*q.dates.length;out.push([c.remainAfter<v?'warn':'',`有給の残り ${fmt(c.remainAfter)}日（予定を引いた後）`]);if(c.target&&c.state!=='ok')out.push(['',`年5日まで あと${fmt(c.need)}日 → 承認すると年5日に ${fmt(v)}日 数えられます`])}}
+  if(q.kind.startsWith('時'))out.push(['',`時間単位なので、その日は出勤として人数に数えます`]);
+  if(q.kind==='特'||q.kind==='時特'){const sp=specialOf(st);out.push([sp.remain<need?'warn':'',`特別休暇の残り ${H(sp.remain)}（${DH(sp.remain,st)}）→ 承認すると ${H(sp.remain-need)}（${DH(sp.remain-need,st)}）。年5日には数えません`])}
+  else{const c=ledger(st).cur;if(c){
+    out.push([c.remainAfter<need?'warn':'',`有給の残り ${H(c.remainAfter)}（${DH(c.remainAfter,st)}・予定を引いた後）`]);
+    if(q.kind==='時有'){const w=c.hourlyH+need>c.hourCap;out.push([w?'warn':'',`時間単位の有給 この期間 ${H(c.hourlyH)} → ${H(c.hourlyH+need)}（上限 ${H(c.hourCap)}）`]);if(c.target&&c.state!=='ok')out.push(['warn',`時間単位は年5日に数えません。年5日まで あと${fmt(c.need)}日のままです`])}
+    else if(c.target&&c.state!=='ok'){const v=q.dates.length*(q.kind==='有'?1:.5);out.push(['',`年5日まで あと${fmt(c.need)}日 → 承認すると年5日に ${fmt(v)}日 数えられます`])}
+  }}
   return out;
 }
 function pageRequests(){
   const pend=S.req.filter(q=>q.state==='待ち'),done=S.req.filter(q=>q.state!=='待ち');
-  const card=q=>{const st=staffOf(q.sid);return `<div class="req"><div class="h">${who(st)}<div class="note">申請日 ${jpy(q.at)}</div></div>
-   <div style="margin-top:8px"><span class="tag ${q.kind==='特'?'sp':'ok'}">${KIND[q.kind]}</span>　<b>${q.dates.map(jps).join('・')}</b>（${fmt(q.dates.length*(q.kind==='特'?1:LEAVE[q.kind]))}日）</div>
+  const card=q=>{const st=staffOf(q.sid);const hh=reqHours(q,st);return `<div class="req"><div class="h">${who(st)}<div class="note">申請日 ${jpy(q.at)}</div></div>
+   <div style="margin-top:8px"><span class="tag ${q.kind.includes('特')?'sp':'ok'}">${KIND[q.kind]}</span>　<b>${q.dates.map(jps).join('・')}</b>　${H(hh)}（${DH(hh,st)}）</div>
    ${q.reason?`<div class="note">理由：${esc(q.reason)}</div>`:''}
    ${q.state==='待ち'?`<div class="check"><b style="font-size:12px">確かめておくこと</b>${reqCheck(q).map(([c,t])=>`<div class="${c}">${t}</div>`).join('')}</div>
-   <div class="row"><button class="btn" onclick="approve('${q.id}')">承認する</button><input type="text" id="rs-${q.id}" placeholder="差し戻す理由（例：この日は人数が足りないため）" style="max-width:340px"><button class="btn red" onclick="reject('${q.id}')">差し戻す</button></div>`
+   <div class="row"><button class="btn" onclick="approve('${q.id}')">承認する</button><input type="text" id="rs-${q.id}" placeholder="差し戻す理由（例：この日は人数が足りないため）" style="max-width:340px"><button class="btn red" onclick="reject('${q.id}')">差し戻す</button></div><div id="am-${q.id}"></div>`
    :`<div style="margin-top:6px"><span class="tag ${q.state==='承認'?'ok':'red'}">${q.state}</span> ${q.note?'<span class="note">理由：'+esc(q.note)+'</span>':''}</div>`}</div>`};
   return `<h1>申請</h1><p class="lead">職員のスマホから届いた休みの申請です。承認すると、シフト表にその場で記号が入ります。</p>
   <h2>申請待ち（${pend.length}件）</h2>${pend.map(card).join('')||'<p class="note">ありません</p>'}
   <h2>決めた申請</h2>${done.slice().reverse().map(card).join('')||'<p class="note">ありません</p>'}`;
 }
-function approve(id){const q=S.req.find(r=>r.id===id);const st=staffOf(q.sid);q.dates.forEach(d=>{const c=cell(st,d);if(c==='日')setCell(st,d,q.kind)});q.state='承認';save();render()}
+function approve(id){
+  const q=S.req.find(r=>r.id===id);const st=staffOf(q.sid);const sym=reqSym(q);
+  for(const d of q.dates){const why=cell(st,d)!=='日'?`${jps(d)} はすでに休みが入っています`:canPut(st,d,sym,'日');if(why){document.getElementById('am-'+id).innerHTML=`<div class="msg ng">${why}</div>`;return}setCell(st,d,sym)}
+  q.state='承認';save();render();
+}
 function reject(id){const q=S.req.find(r=>r.id===id);const v=document.getElementById('rs-'+id).value.trim();if(!v){alert('差し戻す理由を入れてください');return}q.state='差し戻し';q.note=v;save();render()}
 
 /* ===== 画面：職員のスマホ ===== */
 function pageMe(){
   const st=staffOf(S.viewer);const L=ledger(st);const c=L.cur;const sp=specialOf(st);
-  const o=S.ov[st.id]||{};const next=Object.keys(o).filter(d=>d>TODAY&&(LEAVE[o[d]]||o[d]==='特')).sort()[0];
+  const o=S.ov[st.id]||{};const next=Object.keys(o).filter(d=>d>TODAY&&lv(o[d],st)).sort()[0];
   const mine=S.req.filter(q=>q.sid===st.id).slice().reverse();
   let hero;
   if(!c)hero=`<div class="hero"><div class="l">有給の最初の付与</div><div class="v" style="font-size:30px">${jp(L.first)}</div></div>`;
-  else if(c.target)hero=`<div class="hero"><div class="l">年5日まで</div><div class="v ${c.state==='red'?'red':''}">${c.state==='ok'?'達成':'あと'+fmt(c.need)+'<small>日</small>'}</div><div class="note">期限 ${jp(c.end)}（あと${c.left}日）</div></div>`;
-  else hero=`<div class="hero"><div class="l">有給の残り</div><div class="v">${fmt(c.remain)}<small>日</small></div><div class="note">付与が10日未満のため、年5日の対象ではありません</div></div>`;
-  const kinds=[['有','有給（全日）'],['前有','有給（前半の半日）'],['後有','有給（後半の半日）']].concat(sp?[['特','特別休暇']]:[]);
+  else if(c.target)hero=`<div class="hero"><div class="l">年5日まで</div><div class="v ${c.state==='red'?'red':''}">${c.state==='ok'?'達成':'あと'+fmt(c.need)+'<small>日</small>'}</div><div class="note">期限 ${jp(c.end)}（あと${c.left}日）</div>${c.hourlyH&&c.state!=='ok'?'<div class="note">時間単位で取った分は年5日に数えません</div>':''}</div>`;
+  else hero=`<div class="hero"><div class="l">有給の残り</div><div class="v">${fmt(c.remain)}<small>時間</small></div><div class="note">${DH(c.remain,st)}・付与が10日未満のため年5日の対象ではありません</div></div>`;
+  const kinds=[['有','有給（全日）'],['前有','有給（前半の半日）'],['後有','有給（後半の半日）'],['時有','有給（時間単位）']].concat(sp?[['特','特別休暇（全日）'],['時特','特別休暇（時間単位）']]:[]);
+  const nv=next?lv(o[next],st):null;
   return `<div class="phone"><div class="ph"><div class="t">愛ほっと訪問看護ステーション</div><div class="n">${esc(st.name)} さん</div><div class="t">${esc(st.role)}／${workText(st)}</div></div><div class="body">
    ${hero}
    <div class="mini">
-    <div><div class="l">有給の残り</div><div class="v">${c?fmt(c.remain):'―'}<small style="font-size:13px">日</small></div></div>
-    <div><div class="l">${sp?'特別休暇の残り':'次の休み'}</div><div class="v" style="${sp?'':'font-size:16px'}">${sp?sp.remain+'<small style="font-size:13px">日</small>':(next?jps(next):'―')}</div></div>
+    <div><div class="l">有給の残り</div><div class="v">${c?fmt(c.remain):'―'}<small style="font-size:13px">時間</small></div><div class="note">${c?DH(c.remain,st):''}</div></div>
+    ${sp?`<div><div class="l">特別休暇の残り</div><div class="v">${fmt(sp.remain)}<small style="font-size:13px">時間</small></div><div class="note">${DH(sp.remain,st)}</div></div>`
+      :`<div><div class="l">時間単位で取れる残り</div><div class="v">${c?fmt(Math.max(0,c.hourCap-c.hourlyH)):'―'}<small style="font-size:13px">時間</small></div><div class="note">1年に${HOURLY_CAP_DAYS}日分まで</div></div>`}
    </div>
-   ${sp?`<div class="note">次の休み：${next?jps(next)+'（'+KIND[o[next]]+'）':'まだ入っていません'}</div>`:''}
+   <div class="note">次の休み：${next?jps(next)+'（'+(nv.k==='特'?'特別休暇':'有給')+'・'+(nv.hourly?H(nv.h):nv.u)+'）':'まだ入っていません'}</div>
    <h2 style="margin-top:18px">休みを申請する</h2>
    <label class="f">種類</label><select class="f" id="ak">${kinds.map(([k,l])=>`<option value="${k}">${l}</option>`).join('')}</select>
    <label class="f">日付（勤務の日だけ選べます）</label><input type="date" id="ad" min="${addDays(TODAY,1)}" max="${addDays(TODAY,60)}">
+   <div id="hrs" style="display:none"><label class="f">時間数（1日は${st.dh}時間）</label><select class="f" id="ah">${[...Array(st.dh-1)].map((_,i)=>`<option value="${i+1}">${i+1}時間</option>`).join('')}</select></div>
    <div id="spn" style="display:none"><label class="f">日数（続けて取る日数）</label><select class="f" id="an">${[1,2,3,4,5].map(n=>`<option>${n}</option>`).join('')}</select></div>
    <label class="f">理由（任意）</label><input type="text" id="ar" placeholder="例：通院のため">
    <button class="btn bigbtn" onclick="apply()">申請を送る</button>
    <div id="amsg"></div>
    <h2>自分の申請</h2>
-   ${mine.map(q=>`<div class="req" style="padding:10px"><span class="tag ${q.kind==='特'?'sp':'ok'}">${KIND[q.kind]}</span> ${q.dates.map(jps).join('・')}<br>
+   ${mine.map(q=>`<div class="req" style="padding:10px"><span class="tag ${q.kind.includes('特')?'sp':'ok'}">${KIND[q.kind]}</span> ${q.dates.map(jps).join('・')}　${H(reqHours(q,st))}<br>
      <span class="tag ${q.state==='承認'?'ok':q.state==='待ち'?'gray':'red'}">${q.state==='待ち'?'承認待ち':q.state}</span> ${q.note?'<span class="note">'+esc(q.note)+'</span>':''}</div>`).join('')||'<p class="note">まだありません</p>'}
   </div></div>
   <p class="note" style="text-align:center;margin-top:12px">※ お試し版では、上の「見る人」で職員を切り替えると、その人のスマホ画面になります。</p>`;
@@ -480,13 +577,15 @@ function apply(){
   const m=document.getElementById('amsg');const ng=t=>m.innerHTML=`<div class="msg ng">${t}</div>`;
   if(!d)return ng('日付を選んでください');
   if(!isWork(st,d))return ng(`${jps(d)} は勤務の日ではありません`);
-  let dates=[d];
-  if(k==='特'){const n=+document.getElementById('an').value;dates=[];let x=d;while(dates.length<n&&diff(d,x)<30){if(isWork(st,x))dates.push(x);x=addDays(x,1)}
-    const sp=specialOf(st);if(sp.remain<n)return ng(`特別休暇の残りは ${sp.remain}日 です`)}
-  const busy=dates.filter(x=>cell(st,x)!=='日'||S.req.some(q=>q.sid===st.id&&q.state==='待ち'&&q.dates.includes(x)));
+  let dates=[d];const q={id:'r'+Date.now(),sid:st.id,kind:k,dates,reason:r,at:TODAY,state:'待ち'};
+  if(k.startsWith('時'))q.h=+document.getElementById('ah').value;
+  if(k==='特'){const n=+document.getElementById('an').value;dates=[];let x=d;while(dates.length<n&&diff(d,x)<30){if(isWork(st,x))dates.push(x);x=addDays(x,1)}q.dates=dates}
+  const busy=q.dates.filter(x=>cell(st,x)!=='日'||S.req.some(o=>o.sid===st.id&&o.state==='待ち'&&o.dates.includes(x)));
   if(busy.length)return ng(`${busy.map(jps).join('・')} はすでに休みか申請中です`);
-  S.req.push({id:'r'+Date.now(),sid:st.id,kind:k,dates,reason:r,at:TODAY,state:'待ち'});save();render();
-  document.getElementById('amsg').innerHTML=`<div class="msg ok">申請を送りました（${dates.map(jps).join('・')}）。管理者の承認を待ちます。</div>`;
+  if(k==='特'||k==='時特'){const sp=specialOf(st);if(sp.remain<reqHours(q,st))return ng(`特別休暇の残りは ${H(sp.remain)}（${DH(sp.remain,st)}）です`)}
+  if(k==='時有'){const why=canPut(st,d,reqSym(q),'日');if(why)return ng(why)}
+  S.req.push(q);save();render();
+  document.getElementById('amsg').innerHTML=`<div class="msg ok">申請を送りました（${q.dates.map(jps).join('・')}・${H(reqHours(q,st))}）。管理者の承認を待ちます。</div>`;
 }
 
 /* ===== 切り替え ===== */
@@ -494,7 +593,7 @@ function render(){
   header();
   const app=document.getElementById('app');
   const [path,qs]=(location.hash.slice(1)||'/').split('?');const q=new URLSearchParams(qs||'');
-  if(S.viewer!=='admin'){app.innerHTML=pageMe();const ak=document.getElementById('ak');ak.onchange=()=>document.getElementById('spn').style.display=ak.value==='特'?'block':'none';return}
+  if(S.viewer!=='admin'){app.innerHTML=pageMe();const ak=document.getElementById('ak');ak.onchange=()=>{document.getElementById('spn').style.display=ak.value==='特'?'block':'none';document.getElementById('hrs').style.display=ak.value.startsWith('時')?'block':'none'};return}
   if(path.startsWith('/staff/'))app.innerHTML=pageLedger(path.slice(7));
   else if(path==='/staff')app.innerHTML=pageLedgerList();
   else if(path==='/shift'){app.innerHTML=pageShift(q);const d=q.get('d'),s=q.get('s');if(d&&s){const el=app.querySelector(`td[data-s="${s}"][data-d="${d}"]`);if(el){el.classList.add('flash');el.scrollIntoView({block:'nearest',inline:'center'})}}}
@@ -502,9 +601,16 @@ function render(){
   else if(path==='/requests')app.innerHTML=pageRequests();
   else app.innerHTML=pageStatus();
 }
-document.getElementById('app').addEventListener('click',e=>{const td=e.target.closest('td.c');if(!td)return;cycleCell(td.dataset.s,td.dataset.d);const st=staffOf(td.dataset.s);const c=cell(st,td.dataset.d);td.className='c s-'+c;td.textContent=c;
+document.getElementById('app').addEventListener('click',e=>{
+  const b=e.target.closest('#pal button');
+  if(b){BRUSH=b.dataset.b;document.querySelectorAll('#pal button').forEach(x=>x.classList.toggle('on',x===b));document.getElementById('shmsg').textContent='';return}
+  const td=e.target.closest('td.c');if(!td)return;
+  const why=putCell(td.dataset.s,td.dataset.d);const msg=document.getElementById('shmsg');
+  msg.textContent=why;msg.style.color=why?'var(--red)':'';
+  const st=staffOf(td.dataset.s);const c=cell(st,td.dataset.d);td.className='c s-'+symClass(c);td.textContent=symText(c);
   // 人数の行を更新
   const row=td.closest('table').querySelector('tr.cnt');const idx=[...td.parentNode.children].indexOf(td);const ct=row.children[idx];const w=dow(td.dataset.d);if(w!==0&&w!==6){const n=nurseCount(td.dataset.d);ct.textContent=fmt(n);ct.className=n<NEED_NURSE?'short':''}});
+document.getElementById('app').addEventListener('change',e=>{if(e.target.id==='bh')BRUSH_H=+e.target.value});
 function fillViewer(){
   const v=document.getElementById('viewer');
   v.innerHTML=`<option value="admin">管理者（パソコンの画面）</option><optgroup label="職員のスマホ">${S.staff.map(s=>`<option value="${s.id}">${esc(s.name)}（${s.type}）</option>`).join('')}</optgroup>`;
